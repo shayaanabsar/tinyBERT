@@ -6,7 +6,6 @@ with open('shakespeare.txt') as f:
 	file = f.read()
 
 tokens = list(set(file)) + ['<START>', '<END>', '<MASK>']
-print(tokens)
 encoder = {v : i for i, v in enumerate(tokens)}
 decoder = {i : v for i, v in enumerate(tokens)}
 
@@ -23,10 +22,11 @@ MASK_PERCENTAGE = 0.15
 VOCABULARY_SIZE = len(tokens)
 MASKS_PER_SEQUENCE = int(CONTEXT_WINDOW * MASK_PERCENTAGE)
 EMBEDDING_SIZE = 128
-NUM_HEADS      = 8
+NUM_HEADS      = 16
 HEAD_SIZE      = EMBEDDING_SIZE // NUM_HEADS
-BATCH_SIZE     = 8
-NUM_ENCODER_BLOCKS = 4
+BATCH_SIZE     = 32
+NUM_ENCODER_BLOCKS = 8
+EPOCHS = 1000
 
 #### Preprocessing
 num_sequences = encoded_dataset.shape[0] // CONTEXT_WINDOW
@@ -132,5 +132,32 @@ class BERT(nn.Module):
 
 		return logits
 
+def get_batch():
+	indices = torch.randint(low=0, high=X.shape[0]-1, size=(BATCH_SIZE,))
 
-bert = BERT()
+	return X[indices], Y[indices], masked_indices[indices]
+
+
+model = BERT()
+optim = torch.optim.AdamW(model.parameters(), lr=1e-5)
+loss_fn = nn.CrossEntropyLoss()
+
+
+for i in range(EPOCHS):
+	x, y, indices = get_batch()
+
+	logits = model(x)
+
+	batch_indices = torch.arange(x.shape[0]).unsqueeze(1)
+	masked_logits = logits[batch_indices, indices]
+
+	masked_logits = masked_logits.reshape(-1, masked_logits.size(-1))  # [B*M, V]
+	y_flat = y.reshape(-1)
+
+	loss = loss_fn(masked_logits, y_flat)
+
+	optim.zero_grad()
+	loss.backward()
+	optim.step()
+
+	if i % 10 == 0: print(f'Loss at epoch {i} = {loss.item():.4f}')
